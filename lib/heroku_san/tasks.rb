@@ -110,9 +110,9 @@ namespace :heroku do
     if File.exists?(HEROKU_CONFIG_FILE)
       puts "config/heroku.yml already exists"
     else
-      puts "Copied example config to config/heroku.yml"
       FileUtils.cp(example, HEROKU_CONFIG_FILE)
-      sh("#{ENV['EDITOR']} #{HEROKU_CONFIG_FILE}")
+      puts "Copied example config to config/heroku.yml"
+      sh("#{ENV['EDITOR']} #{HEROKU_CONFIG_FILE}") if ENV['EDITOR']
     end
   end
 
