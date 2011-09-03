@@ -1,0 +1,8 @@
+require 'bundler'
+Bundler::GemHelper.install_tasks
+<<<<<<< HEAD
+
+=======
+>>>>>>> 57e172496d60bfb50464fdb1a65c396a5bf86781
+
+task :default => :build
