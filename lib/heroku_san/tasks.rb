@@ -1,6 +1,6 @@
 HEROKU_CONFIG_FILE = Rails.root.join('config', 'heroku.yml')
 
-@app_settings = 
+@app_settings =
   if File.exists?(HEROKU_CONFIG_FILE)
     if defined?(ERB)
       YAML.load(ERB.new(File.read(HEROKU_CONFIG_FILE)).result)
@@ -26,7 +26,7 @@ def retrieve_configuration
     tmp_config_dir = Dir.mktmpdir
     tmp_config_file = File.join tmp_config_dir, 'config.yml'
     sh "git clone #{@config_repo} #{tmp_config_dir}"
-    @extra_config = 
+    @extra_config =
       if File.exists?(tmp_config_file)
         if defined?(ERB)
           YAML.load(ERB.new(File.read(tmp_config_file)).result)
@@ -107,9 +107,27 @@ namespace :heroku do
   desc 'Lists configured apps'
   task :apps => :all do
     each_heroku_app do |name, app, repo|
-      puts "#{name} is shorthand for the Heroku app #{app} located at:"
-      puts "  #{repo}"
+      puts  "#{name} is shorthand for the Heroku app #{app} located at:"
+      puts  "  #{repo}"
+      print "  @ "
+      rev = `git ls-remote -h #{repo}`.split(' ').first
+      if rev.blank?
+        puts 'not deployed'
+      else
+        puts `git name-rev #{rev}`
+      end
       puts
+    end
+  end
+
+  namespace :apps do
+    desc 'Lists configured apps without hitting Heroku'
+    task :local => :all do
+      each_heroku_app do |name, app, repo|
+        puts "#{name} is shorthand for the Heroku app #{app} located at:"
+        puts "  #{repo}"
+        puts
+      end
     end
   end
 
@@ -133,17 +151,24 @@ namespace :heroku do
     else
       FileUtils.cp(example, HEROKU_CONFIG_FILE)
       puts "Copied example config to config/heroku.yml"
-      sh("#{ENV['EDITOR']} #{HEROKU_CONFIG_FILE}") if ENV['EDITOR']
+      FileUtils.cp(example, HEROKU_CONFIG_FILE)
+      if ENV['EDITOR'].present?
+        sh("#{ENV['EDITOR']} #{HEROKU_CONFIG_FILE}")
+      else
+        puts "Please edit config/heroku.yml with your application's settings."
+      end
     end
   end
 
-  desc 'Add config:vars to each application.'
+  desc 'Add config:vars to each application'
   task :config do
     retrieve_configuration
     each_heroku_app do |name, app, repo, config|
-      (config).each do |var, value|
-        sh "heroku config:add --app #{app} #{var}=#{value}"
+      command = "heroku config:add --app #{app}"
+      config.each do |var, value|
+        command += " #{var}=#{value}"
       end
+      sh(command)
     end
   end
 
@@ -208,7 +233,7 @@ namespace :heroku do
 end
 
 desc "Pushes the given commit, migrates and restarts (default: HEAD)"
-task :deploy, :commit, :needs => :before_deploy do |t, args|
+task :deploy, [:commit] => [:before_deploy] do |t, args|
   each_heroku_app do |name, app, repo|
     push(args[:commit], repo)
     migrate(app)
@@ -221,7 +246,7 @@ namespace :deploy do
   task :force, :commit do |t, args|
     @git_push_arguments ||= []
     @git_push_arguments << '--force'
-    Rake::Task[:deploy].invoke(args)
+    Rake::Task[:deploy].invoke(args[:commit])
   end
 end
 
@@ -274,27 +299,56 @@ task :logs do
 end
 
 namespace :db do
+  desc 'Pull the Heroku database'
   task :pull do
+    dbconfig = YAML.load(ERB.new(File.read(Rails.root.join('config/database.yml'))).result)[Rails.env]
+    return if dbconfig['adapter'] != 'postgresql'
+
     each_heroku_app do |name, app, repo|
-      sh "heroku pgdumps:capture --app #{app}"
-      dump = `heroku pgdumps --app #{app}`.split("\n").last.split(" ").first
+      oldest = `heroku pgbackups --app #{app}`.split("\n")[2].split(" ").first
+      sh "heroku pgbackups:destroy #{oldest} --app #{app}"
+
+      sh "heroku pgbackups:capture --app #{app}"
+      dump = `heroku pgbackups --app #{app}`.split("\n").last.split(" ").first
       sh "mkdir -p #{Rails.root}/db/dumps"
-      file = "#{Rails.root}/db/dumps/#{dump}.sql.gz"
-      url = `heroku pgdumps:url --app #{app} #{dump}`.chomp
+      file = "#{Rails.root}/db/dumps/#{dump}"
+      url = `heroku pgbackups:url --app #{app} #{dump}`.chomp
       sh "wget", url, "-O", file
-      sh "rake db:drop db:create"
-      sh "gunzip -c #{file} | #{Rails.root}/script/dbconsole"
+
+      sh "rake db:setup"
+      sh "pg_restore --verbose --clean --no-acl --no-owner -h #{dbconfig['host']} -p #{dbconfig['port']} -U #{dbconfig['username']} -d #{dbconfig['database']} #{file}"
       sh "rake jobs:clear"
+    end
+  end
+
+  desc 'Push local database to Heroku database'
+  task :push do
+    dbconfig = YAML.load(ERB.new(File.read(Rails.root.join('config/database.yml'))).result)[Rails.env]
+    return if dbconfig['adapter'] != 'postgresql'
+
+    each_heroku_app do |name, app, repo|
+      sh "heroku db:push postgres://#{dbconfig['username']}:#{dbconfig['password']}@#{dbconfig['host']}/#{dbconfig['database']} --app #{app}"
     end
   end
 end
 
 def each_heroku_app
-  if @heroku_apps.blank? && @app_settings.keys.size == 1
-    app = @app_settings.keys.first
-    puts "Defaulting to #{app} app since only one app is defined"
-    @heroku_apps = [app]
+  if @heroku_apps.blank? 
+    if @app_settings.keys.size == 1
+      app = @app_settings.keys.first
+      puts "Defaulting to #{app} app since only one app is defined"
+      @heroku_apps = [app]
+    else
+      @app_settings.keys.each do |key|
+        active_branch = %x{git branch}.split("\n").select { |b| b =~ /^\*/ }.first.split(" ").last.strip
+        if key == active_branch
+          puts "Defaulting to #{key} as it matches the current branch"
+          @heroku_apps = [key]
+        end
+      end
+    end
   end
+
   if @heroku_apps.present?
     @heroku_apps.each do |name|
       app = @app_settings[name]['app']
