@@ -164,9 +164,8 @@ namespace :heroku do
   task :config do
     retrieve_configuration
     each_heroku_app do |name, app, repo, config|
-      command = "heroku config:add --app #{app}"
-      config.each do |var, value|
-        command += " #{var}=#{value}"
+      (config).each do |var, value|
+        sh "heroku config:add --app #{app} #{var}=\"#{value}\""
       end
       sh(command)
     end
@@ -194,6 +193,15 @@ namespace :heroku do
     end
   end
   
+  desc 'Add addons to each application.'
+  task :addons do
+    each_heroku_app do |name, app, repo, config, addons|
+      (addons.split(',')).each do |addon|
+        sh "heroku addons:add --app #{app} #{addon}"
+      end
+    end
+  end
+
   desc 'Runs a rake task remotely'
   task :rake, :task do |t, args|
     each_heroku_app do |name, app, repo|
@@ -358,7 +366,8 @@ def each_heroku_app
       app = @app_settings[name]['app']
       config = @app_settings[name]['config'] || {}
       config.merge!(@extra_config[name]) if (@extra_config && @extra_config[name])
-      yield(name, app, "git@heroku.com:#{app}.git", config)
+      addons = @app_settings[name]['addons'] || []
+      yield(name, app, "git@heroku.com:#{app}.git", config, addons)
     end
     puts
   else

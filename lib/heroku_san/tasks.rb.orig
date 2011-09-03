@@ -26,11 +26,7 @@ def retrieve_configuration
     tmp_config_dir = Dir.mktmpdir
     tmp_config_file = File.join tmp_config_dir, 'config.yml'
     sh "git clone #{@config_repo} #{tmp_config_dir}"
-<<<<<<< HEAD
-    @extra_config = 
-=======
     @extra_config =
->>>>>>> 57e172496d60bfb50464fdb1a65c396a5bf86781
       if File.exists?(tmp_config_file)
         if defined?(ERB)
           YAML.load(ERB.new(File.read(tmp_config_file)).result)
@@ -60,7 +56,7 @@ namespace :heroku do
   desc "Creates the Heroku app"
   task :create do
     each_heroku_app do |name, app, repo|
-      sh "heroku create #{app}"
+      sh "heroku create #{app} #{("--stack " + stack(app)) if stack(app)}"
     end
   end
 
@@ -154,16 +150,13 @@ namespace :heroku do
       puts "config/heroku.yml already exists"
     else
       FileUtils.cp(example, HEROKU_CONFIG_FILE)
-<<<<<<< HEAD
       puts "Copied example config to config/heroku.yml"
-      sh("#{ENV['EDITOR']} #{HEROKU_CONFIG_FILE}") if ENV['EDITOR']
-=======
+      FileUtils.cp(example, HEROKU_CONFIG_FILE)
       if ENV['EDITOR'].present?
         sh("#{ENV['EDITOR']} #{HEROKU_CONFIG_FILE}")
       else
         puts "Please edit config/heroku.yml with your application's settings."
       end
->>>>>>> 57e172496d60bfb50464fdb1a65c396a5bf86781
     end
   end
 
@@ -171,6 +164,7 @@ namespace :heroku do
   task :config do
     retrieve_configuration
     each_heroku_app do |name, app, repo, config|
+<<<<<<< HEAD
       command = "heroku config:add --app #{app}"
       config.each do |var, value|
         command += " #{var}=#{value}"
@@ -197,36 +191,27 @@ namespace :heroku do
             puts "#{name} #{var}: '#{value}'"
           end
         end
-      end
-    end
-  end
-
-  namespace :config do
-    desc "Lists config variables as set on Heroku"
-    task :list do
-      each_heroku_app do |name, app|
-        puts "#{name}:"
-        sh "heroku config --app #{app} --long"
-      end
-    end
-
-    namespace :list do
-      desc "Lists local config variables without setting them"
-      task :local do
-        retrieve_configuration
-        each_heroku_app do |name, app, repo, config|
-          (config).each do |var, value|
-            puts "#{name} #{var}: '#{value}'"
-          end
-        end
+=======
+      (config).each do |var, value|
+        sh "heroku config:add --app #{app} #{var}=\"#{value}\""
+>>>>>>> 134b1fbe4a3bb97b4a39132a2e55ea51c3a9ca15
       end
     end
   end
   
+  desc 'Add addons to each application.'
+  task :addons do
+    each_heroku_app do |name, app, repo, config, addons|
+      (addons.split(',')).each do |addon|
+        sh "heroku addons:add --app #{app} #{addon}"
+      end
+    end
+  end
+
   desc 'Runs a rake task remotely'
   task :rake, :task do |t, args|
     each_heroku_app do |name, app, repo|
-      sh "heroku rake --app #{app} #{args[:task]}"
+      sh "heroku #{run_or_rake(app)} #{args[:task]}"
     end
   end
 
@@ -302,7 +287,11 @@ end
 desc "Opens a remote console"
 task :console do
   each_heroku_app do |name, app, repo|
-    sh "heroku console --app #{app}"
+    if stack_is_cedar?(app)
+      sh "heroku run --app #{app} console"
+    else
+      sh "heroku console --app #{app}"
+    end
   end
 end
 
@@ -381,9 +370,15 @@ def each_heroku_app
   if @heroku_apps.present?
     @heroku_apps.each do |name|
       app = @app_settings[name]['app']
+<<<<<<< HEAD
       config = @app_settings[name]['config'] || {}
       config.merge!(@extra_config[name]) if (@extra_config && @extra_config[name])
       yield(name, app, "git@heroku.com:#{app}.git", config)
+=======
+      config = @app_settings[name]['config'] || []
+      addons = @app_settings[name]['addons'] || []
+      yield(name, app, "git@heroku.com:#{app}.git", config, addons)
+>>>>>>> 134b1fbe4a3bb97b4a39132a2e55ea51c3a9ca15
     end
     puts
   else
@@ -411,10 +406,30 @@ def push(commit, repo)
 end
 
 def migrate(app)
-  sh "heroku rake --app #{app} db:migrate"
+  sh "heroku #{run_or_rake(app)} db:migrate"
   sh "heroku restart --app #{app}"
 end
 
 def maintenance(app, action)
   sh "heroku maintenance:#{action} --app #{app}"
+end
+
+# `heroku rake foo` has been superseded by `heroku run rake foo` on cedar
+def run_or_rake(app)
+  if stack_is_cedar?(app)
+    "run --app #{app} rake"
+  else
+    "rake --app #{app}"
+  end
+end
+
+def stack_is_cedar?(app)
+  stack(app) =~ /^cedar/
+end
+
+def stack(app)
+  @app_settings.values.detect { |s| s['app'] == app }.tap do |settings|
+    @stack = (settings['stack'] || (/^\* (.*)/.match `heroku stack --app #{app}`)[1] rescue nil)
+  end
+  @stack
 end
