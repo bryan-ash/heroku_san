@@ -5,7 +5,9 @@
 #   app: <Heroku app name>
 #   stack: <Heroku stack, optional>
 #   config:
-#     - <Heroku config:var name>: <Heroku config:var value>
+#     <Heroku config:var name>: <Heroku config:var value>
+#   addons:
+#   - <Heroku addons name>
 #
 production: 
   app: awesomeapp
@@ -14,8 +16,8 @@ production:
     BUNDLE_WITHOUT: "development:test"
     GOOGLE_ANALYTICS: "UA-12345678-1"
   addons: &addons
-    cron: "daily"
-    ssl: "piggyback"
+  - cron:daily
+  - ssl:piggyback
 
 staging:
   stack: cedar

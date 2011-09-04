@@ -197,7 +197,7 @@ namespace :heroku do
   desc 'Add addons to each application.'
   task :addons do
     each_heroku_app do |name, app, repo, config, addons|
-      (addons.split(',')).each do |addon|
+      addons.each do |addon|
         sh "heroku addons:add --app #{app} #{addon}"
       end
     end
